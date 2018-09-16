@@ -1,10 +1,13 @@
 use combine::{
-    char::{char, hex_digit}, combinator::eof, stream::state::{IndexPositioner, State}, ParseError,
-    Parser, RangeStream,
+    char::{char, hex_digit},
+    combinator::eof,
+    stream::state::{IndexPositioner, State},
+    ParseError, Parser, RangeStream,
 };
-use failure;
 
 use std::{self, fmt};
+
+use error::{Error, Result};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 /// A MAC address, represented as a tuple of six of octets.
@@ -21,16 +24,14 @@ impl fmt::Display for MacAddress {
 }
 
 impl std::str::FromStr for MacAddress {
-    type Err = failure::Error;
+    type Err = Error;
 
-    fn from_str(s: &str) -> Result<MacAddress, failure::Error> {
+    fn from_str(s: &str) -> Result<MacAddress> {
         let stream = State::with_positioner(s, IndexPositioner::new());
         mac_address()
             .easy_parse(stream)
             .map(|(mac, _)| mac)
-            .map_err(|e| {
-                failure::err_msg(format!("Invalid MAC address \"{}\": parse error at character {}", s, e.position))
-            })
+            .map_err(Into::into)
     }
 }
 
@@ -56,14 +57,17 @@ where
         hex_byte().skip(char(':')),
         hex_byte().skip(char(':')),
         hex_byte().skip(eof()),
-    ).map(|(a, b, c, d, e, f)| MacAddress(a, b, c, d, e, f))
+    )
+        .map(|(a, b, c, d, e, f)| MacAddress(a, b, c, d, e, f))
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
     use std::str::FromStr;
-    use std::string::ToString;
+
+    use combine::easy;
+    use error::Error;
 
     #[test]
     fn test_parse() {
@@ -73,21 +77,40 @@ mod test {
         );
 
         assert_eq!(
-            MacAddress::from_str("aa").unwrap_err().to_string(),
-            "Invalid MAC address \"aa\": parse error at character 2"
-        );
+            MacAddress::from_str("aa"),
+            Err(Error::MacParseError(
+                easy::Errors {
+                    position: 2,
+                    errors: vec![
+                        easy::Error::Unexpected(easy::Info::Borrowed("end of input".into())),
+                        easy::Error::Expected(easy::Info::Token(':')),
+                    ],
+                },
+            )));
+
         assert_eq!(
-            MacAddress::from_str("aa:bb:cc:dd:ee:ff:")
-                .unwrap_err()
-                .to_string(),
-            "Invalid MAC address \"aa:bb:cc:dd:ee:ff:\": parse error at character 17"
-        );
+            MacAddress::from_str("aa:bb:cc:dd:ee:ff:"),
+            Err(Error::MacParseError(
+                easy::Errors {
+                    position: 17,
+                    errors: vec![
+                        easy::Error::Unexpected(easy::Info::Token(':')),
+                        easy::Error::Expected(easy::Info::Borrowed("end of input")),
+                    ],
+                }
+            )));
+
         assert_eq!(
-            MacAddress::from_str("bb:cc:dd:ee:ff:gg")
-                .unwrap_err()
-                .to_string(),
-            "Invalid MAC address \"bb:cc:dd:ee:ff:gg\": parse error at character 15"
-        );
+            MacAddress::from_str("bb:cc:dd:ee:ff:gg"),
+            Err(Error::MacParseError(
+                easy::Errors {
+                    position: 15,
+                    errors: vec![
+                        easy::Error::Unexpected(easy::Info::Token('g')),
+                        easy::Error::Expected(easy::Info::Borrowed("hexadecimal digit")),
+                    ],
+                },
+            )));
     }
 
     #[test]
