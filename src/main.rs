@@ -2,6 +2,11 @@ extern crate combine;
 extern crate failure;
 #[macro_use]
 extern crate failure_derive;
+extern crate nix;
+#[macro_use]
+extern crate slog;
+extern crate slog_async;
+extern crate slog_term;
 extern crate structopt;
 #[macro_use]
 extern crate structopt_derive;
@@ -9,6 +14,10 @@ extern crate structopt_derive;
 mod error;
 mod mac;
 
+use std::process::exit;
+
+use nix::unistd::getuid;
+use slog::Drain;
 use structopt::StructOpt;
 
 #[derive(Debug, Eq, StructOpt, PartialEq)]
@@ -33,4 +42,23 @@ struct Options {
 
 fn main() {
     let _options = Options::from_args();
+
+    let exit_code = {
+        let decorator = slog_term::PlainDecorator::new(std::io::stdout());
+        let drain = slog_term::FullFormat::new(decorator)
+            .use_original_order()
+            .build()
+            .fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+        let log = slog::Logger::root(drain, o!{});
+
+        if !getuid().is_root() {
+            crit!(log, "wake-on-lan-hook listens on privileged ports 0, 7, and 9 and must be run as root.");
+            1
+        } else {
+            0
+        }
+    };
+
+    exit(exit_code);
 }
