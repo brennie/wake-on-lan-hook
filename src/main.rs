@@ -13,9 +13,11 @@ extern crate slog_term;
 extern crate structopt;
 #[macro_use]
 extern crate structopt_derive;
+extern crate tokio;
 
 mod error;
 mod mac;
+mod server;
 
 use std::process::exit;
 
@@ -59,7 +61,13 @@ fn main() {
             crit!(log, "wake-on-lan-hook listens on privileged ports 0, 7, and 9 and must be run as root.");
             1
         } else {
-            0
+            match server::run(log.clone()) {
+                Ok(_) => unreachable!("server::run always returns Err()"),
+                Err(e) => {
+                    crit!(log, "An unexpected error occurred"; "error" => %e);
+                    1
+                }
+            }
         }
     };
 
