@@ -1,6 +1,6 @@
 use combine::easy;
 
-#[derive(Debug, Fail, PartialEq)]
+#[derive(Debug, Fail)]
 pub enum Error {
     #[fail(display = "Invalid MAC address")]
     MacParseError(#[cause] easy::Errors<char, String, usize>),

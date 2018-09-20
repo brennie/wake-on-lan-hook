@@ -13,3 +13,6 @@ slog-async = "2.3.0"
 slog-term = "2.4.0"
 structopt = { version = "0.2.10", features = ["wrap_help"] }
 structopt-derive = "0.2.10"
+
+[dev-dependencies]
+assert_matches = "1.3.0"

@@ -116,21 +116,19 @@ mod test {
     use std::{iter, str::FromStr};
 
     use combine::easy;
+    use failure::Fail;
+
     use error::Error;
 
     fn make_magic_packet(valid_header: bool, macs: Vec<MacAddress>) -> Vec<u8> {
         let mut packet = Vec::with_capacity(102);
 
-        if valid_header {
-            for _ in 0..6 {
-                packet.push(0xFF);
-            }
-        } else {
-            for _ in 0..5 {
-                packet.push(0xFF);
-            }
-            packet.push(0xFE);
+        packet.extend(iter::repeat(0xFF).take(6));
+
+        if !valid_header {
+            packet[5] = 0xFE;
         }
+
         for mac in macs {
             packet.push(mac.0);
             packet.push(mac.1);
@@ -143,6 +141,21 @@ mod test {
         packet
     }
 
+    /// Check that parsing the MAC address results in the given parsing error.
+    fn check_mac_parse_error(s: &str, errors: easy::Errors<char, String, usize>) {
+        let result = MacAddress::from_str(s);
+        assert_matches!(result, Err(Error::MacParseError(easy::Errors { .. })));
+
+        let err = result.expect_err("Not an error?");
+        let inner = err
+            .cause()
+            .expect("No cause?")
+            .downcast_ref::<easy::Errors<char, String, usize>>()
+            .expect("Not a easy::Errors<char, String, usize>?");
+
+        assert_eq!(inner, &errors);
+    }
+
     #[test]
     fn test_parse() {
         assert_eq!(
@@ -150,38 +163,56 @@ mod test {
             MacAddress(0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff)
         );
 
-        assert_eq!(
-            MacAddress::from_str("aa"),
-            Err(Error::MacParseError(easy::Errors {
+        check_mac_parse_error(
+            "aa",
+            easy::Errors {
                 position: 2,
                 errors: vec![
                     easy::Error::Unexpected(easy::Info::Borrowed("end of input".into())),
                     easy::Error::Expected(easy::Info::Token(':')),
                 ],
-            },))
+            },
         );
 
-        assert_eq!(
-            MacAddress::from_str("aa:bb:cc:dd:ee:ff:"),
-            Err(Error::MacParseError(easy::Errors {
+        check_mac_parse_error(
+            "aa:bb:cc:dd:ee:ff:",
+            easy::Errors {
                 position: 17,
                 errors: vec![
                     easy::Error::Unexpected(easy::Info::Token(':')),
                     easy::Error::Expected(easy::Info::Borrowed("end of input")),
                 ],
-            }))
+            },
         );
 
-        assert_eq!(
-            MacAddress::from_str("bb:cc:dd:ee:ff:gg"),
-            Err(Error::MacParseError(easy::Errors {
+        check_mac_parse_error(
+            "bb:cc:dd:ee:ff:gg",
+            easy::Errors {
                 position: 15,
                 errors: vec![
                     easy::Error::Unexpected(easy::Info::Token('g')),
                     easy::Error::Expected(easy::Info::Borrowed("hexadecimal digit")),
                 ],
-            }))
+            },
         );
+    }
+
+    /// Check that parsing the given packet results in the given parsing error.
+    fn check_magic_packet_parse_error(packet: &[u8], errors: easy::Errors<u8, String, usize>) {
+        let result = MacAddress::from_magic_packet(packet);
+        assert_matches!(
+            result,
+            Err(Error::MagicPacketParseError(easy::Errors { .. }))
+        );
+
+        let err = result.expect_err("Not an error?");
+        let inner = err
+            .cause()
+            .expect("No cause?")
+            .downcast_ref::<easy::Errors<u8, String, usize>>()
+            .expect("Not a easy::Errors<u8, String, usize>?");
+
+        assert_eq!(inner, &errors);
     }
 
     #[test]
@@ -189,52 +220,54 @@ mod test {
         let mac = MacAddress(0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff);
 
         let packet = make_magic_packet(true, iter::repeat(mac).take(16).collect());
-        assert_eq!(MacAddress::from_magic_packet(&packet[..]), Ok(mac));
+        assert_eq!(MacAddress::from_magic_packet(&packet[..]).unwrap(), mac);
 
         let packet = make_magic_packet(false, iter::repeat(mac).take(16).collect());
-        assert_eq!(
-            MacAddress::from_magic_packet(&packet[..]),
-            Err(Error::MagicPacketParseError(easy::Errors {
+        check_magic_packet_parse_error(
+            &packet[..],
+            easy::Errors {
                 position: 5,
                 errors: vec![
                     easy::Error::Message(easy::Info::Owned("expected 1 more elements".into())),
                     easy::Error::Message(easy::Info::Borrowed("expected magic packet header")),
                 ],
-            }))
+            },
         );
 
-        let packet = {
-            let mut macs = iter::repeat(mac).take(15).collect::<Vec<_>>();
-            macs.push(MacAddress(0, 0, 0, 0, 0, 0));
-
-            make_magic_packet(true, macs)
-        };
-        assert_eq!(
-            MacAddress::from_magic_packet(&packet[..]),
-            Err(Error::MagicPacketParseError(easy::Errors {
+        let packet = make_magic_packet(
+            true,
+            iter::repeat(mac)
+                .take(15)
+                .chain(iter::once(MacAddress(0, 0, 0, 0, 0, 0)))
+                .collect::<Vec<_>>(),
+        );
+        check_magic_packet_parse_error(
+            &packet[..],
+            easy::Errors {
                 position: 96,
                 errors: vec![
                     easy::Error::Message(easy::Info::Owned("expected 1 more elements".into())),
                     easy::Error::Message(easy::Info::Borrowed("expected repeated MAC address")),
                 ],
-            }))
+            },
         );
 
-        let packet = {
-            let mut macs = iter::repeat(mac).take(6).collect::<Vec<_>>();
-            macs.extend(iter::repeat(MacAddress(0, 0, 0, 0, 0, 0)).take(10));
-
-            make_magic_packet(true, macs)
-        };
-        assert_eq!(
-            MacAddress::from_magic_packet(&packet[..]),
-            Err(Error::MagicPacketParseError(easy::Errors {
+        let packet = make_magic_packet(
+            true,
+            iter::repeat(mac)
+                .take(6)
+                .chain(iter::repeat(MacAddress(0, 0, 0, 0, 0, 0)).take(10))
+                .collect::<Vec<_>>(),
+        );
+        check_magic_packet_parse_error(
+            &packet[..],
+            easy::Errors {
                 position: 42,
                 errors: vec![
                     easy::Error::Message(easy::Info::Owned("expected 10 more elements".into())),
                     easy::Error::Message(easy::Info::Borrowed("expected repeated MAC address")),
                 ],
-            }))
+            },
         );
     }
 
