@@ -14,19 +14,25 @@ use std::{fmt, str::FromStr};
 
 use error::Error;
 
+const MAGIC_PACKET_LEN: usize = 102;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 /// A MAC address, represented as a tuple of six of octets.
 pub struct MacAddress(pub u8, pub u8, pub u8, pub u8, pub u8, pub u8);
 
 impl MacAddress {
-    pub fn from_magic_packet(s: &[u8]) -> Result<Self, Error> {
-        let stream = State::with_positioner(s, IndexPositioner::new());
+    pub fn from_magic_packet(bs: &[u8]) -> Result<Self, Error> {
+        if bs.len() != MAGIC_PACKET_LEN {
+            return Err(Error::MagicPacketLengthError(bs.len()));
+        }
+
+        let stream = State::with_positioner(bs, IndexPositioner::new());
         magic_packet()
             .easy_parse(stream)
             .map(|(mac, _)| mac)
             .map_err(|e| {
-                Error::MagicPacketParseError(e.map_range(|bs| {
-                    let bytes_as_str = bs
+                Error::MagicPacketParseError(e.map_range(|r| {
+                    let bytes_as_str = r
                         .iter()
                         .map(|b| format!("0x{:02X}", b))
                         .collect::<Vec<_>>()
@@ -268,6 +274,18 @@ mod test {
                     easy::Error::Message(easy::Info::Borrowed("expected repeated MAC address")),
                 ],
             },
+        );
+
+        let packet = vec![];
+        assert_matches!(
+            MacAddress::from_magic_packet(&packet[..]),
+            Err(Error::MagicPacketLengthError(0))
+        );
+
+        let packet = vec![0; 101];
+        assert_matches!(
+            MacAddress::from_magic_packet(&packet[..]),
+            Err(Error::MagicPacketLengthError(101))
         );
     }
 
