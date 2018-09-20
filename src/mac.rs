@@ -1,3 +1,5 @@
+//! Definitions and parsers for MAC addresses and wake-on-LAN magic packets.
+
 use combine::{
     combinator::eof,
     parser::{
@@ -14,6 +16,7 @@ use std::{fmt, str::FromStr};
 
 use error::Error;
 
+/// The size of a wake-on-LAN "magic packet."
 const MAGIC_PACKET_LEN: usize = 102;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -21,6 +24,11 @@ const MAGIC_PACKET_LEN: usize = 102;
 pub struct MacAddress(pub u8, pub u8, pub u8, pub u8, pub u8, pub u8);
 
 impl MacAddress {
+    /// Parse a wake-on-LAN magic packet and, if valid, return the MAC address
+    /// that it is for.
+    ///
+    /// See the [`magic_packet()`] parser for details.
+    ///
     pub fn from_magic_packet(bs: &[u8]) -> Result<Self, Error> {
         if bs.len() != MAGIC_PACKET_LEN {
             return Err(Error::MagicPacketLengthError(bs.len()));
@@ -65,6 +73,7 @@ impl FromStr for MacAddress {
     }
 }
 
+/// Return a parser for a hexadecimal byte (`00` to `FF`) and return it as an integer.
 fn hex_byte<I>() -> impl Parser<Input = I, Output = u8>
 where
     I: RangeStream<Item = char>,
@@ -75,6 +84,7 @@ where
     (u8_hex_digit(), u8_hex_digit()).map(|(hi, lo)| (hi << 4) | lo)
 }
 
+/// Return a parser to parse a MAC address from a string.
 fn mac_address<I>() -> impl Parser<Input = I, Output = MacAddress>
 where
     I: RangeStream<Item = char>,
@@ -91,6 +101,14 @@ where
         .map(|(a, b, c, d, e, f)| MacAddress(a, b, c, d, e, f))
 }
 
+/// Return a parser to parse a wake-on-LAN "magic packet".
+///
+/// A "magic packet" is a 102-byte packet that consists of:
+///
+/// * A packet header: 6 repetitions of `0xFF`
+/// * A packet body: 16 repetitions of the MAC address that the packet is designated for.
+///
+///   MAC addresses in the body are encoded sequentially.
 fn magic_packet<'a, I>() -> impl Parser<Input = I, Output = MacAddress> + 'a
 where
     I: RangeStream<Item = u8, Range = &'a [u8]> + 'a,

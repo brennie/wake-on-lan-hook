@@ -1,3 +1,4 @@
+//! The wake-on-lan-hook server.
 use std::{net::{Ipv4Addr, SocketAddr}, process::Command};
 
 use slog;
@@ -7,8 +8,26 @@ use tokio_process::CommandExt;
 use error::Error;
 use mac::MacAddress;
 
+/// The ports to listen on.
+///
+/// Wake-on-LAN "magic packets" are sent on UDP ports 0, 7, or 9 *or* as an
+/// Ethernet packet with EtherType `0x0842`.mac
+///
+/// See [the Wikipedia article][wiki] for more information.
+///
+/// [wiki]: https://en.wikipedia.org/wiki/Wake-on-LAN#Magic_packet
 const WAKE_ON_LAN_PORTS: [u16; 3] = [0, 7, 9];
 
+/// Run the wake-on-lan-hook server.
+///
+/// This will start listening on UDP ports 0, 7, and 9 for wake-on-LAN "magic
+/// packets" and run the given command whenever a packet for the desired MAC
+/// address is detected.
+///
+/// Wake-on-LAN packets for other MAC addresses will be ignored but logged.
+///
+/// See the [`magic_packet()`][::mac::magic_packet] parser for details about what
+/// constitutes a magic packet.
 pub fn run(
     log: slog::Logger,
     desired_mac_address: MacAddress,
@@ -117,6 +136,10 @@ pub fn run(
     Ok(())
 }
 
+/// Attempt to parse the bytes as UTF-8.
+///
+/// If the bytes cannot be parsed as UTF-8 successfully, the `Debug`
+/// representation of the bytes will be used instead.
 fn utf8_or_raw(bytes: &[u8]) -> String {
     ::std::str::from_utf8(bytes)
         .map(Into::into)

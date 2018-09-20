@@ -39,6 +39,10 @@ struct Options {
     command: Vec<String>,
 }
 
+/// The `wake-on-lan-hook` entrypoint.
+///
+/// [`Options`] will be parsed from the command line arguments and will determine
+/// the behaviour of the server.
 fn main() {
     let options = Options::from_args();
 
