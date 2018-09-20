@@ -29,7 +29,7 @@ const WAKE_ON_LAN_PORTS: [u16; 3] = [0, 7, 9];
 /// See the [`magic_packet()`][::mac::magic_packet] parser for details about what
 /// constitutes a magic packet.
 pub fn run(
-    log: slog::Logger,
+    log: &slog::Logger,
     desired_mac_address: MacAddress,
     cmd: Vec<String>,
 ) -> Result<(), Error> {
@@ -123,7 +123,7 @@ pub fn run(
                                 }
                             });
 
-                        return future::Either::B(command_future.map(|_| ()));
+                        future::Either::B(command_future.map(|_| ()))
                     }
                 })
         }

@@ -62,7 +62,7 @@ fn main() {
             );
             1
         } else {
-            match server::run(log.clone(), options.mac_address, options.command) {
+            match server::run(&log.clone(), options.mac_address, options.command) {
                 Ok(_) => unreachable!("server::run always returns Err()"),
                 Err(e) => {
                     crit!(log, "An unexpected error occurred"; "error" => %e);
