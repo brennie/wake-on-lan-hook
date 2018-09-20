@@ -46,7 +46,7 @@ struct Options {
 }
 
 fn main() {
-    let _options = Options::from_args();
+    let options = Options::from_args();
 
     let exit_code = {
         let decorator = slog_term::PlainDecorator::new(std::io::stdout());
@@ -61,7 +61,7 @@ fn main() {
             crit!(log, "wake-on-lan-hook listens on privileged ports 0, 7, and 9 and must be run as root.");
             1
         } else {
-            match server::run(log.clone()) {
+            match server::run(log.clone(), options.mac_address) {
                 Ok(_) => unreachable!("server::run always returns Err()"),
                 Err(e) => {
                     crit!(log, "An unexpected error occurred"; "error" => %e);
