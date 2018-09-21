@@ -10,11 +10,13 @@ extern crate nix;
 extern crate slog;
 extern crate slog_async;
 extern crate slog_term;
+extern crate stream_cancel;
 extern crate structopt;
 #[macro_use]
 extern crate structopt_derive;
 extern crate tokio;
 extern crate tokio_process;
+extern crate tokio_signal;
 
 mod error;
 mod mac;
@@ -62,8 +64,11 @@ fn main() {
             );
             1
         } else {
-            match server::run(&log.clone(), options.mac_address, options.command) {
-                Ok(_) => unreachable!("server::run always returns Err()"),
+            match server::run(log.clone(), options.mac_address, options.command) {
+                Ok(_) => {
+                    info!(log, "Server shut down.");
+                    0
+                }
                 Err(e) => {
                     crit!(log, "An unexpected error occurred"; "error" => %e);
                     1

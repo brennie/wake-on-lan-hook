@@ -1,9 +1,18 @@
 //! The wake-on-lan-hook server.
-use std::{net::{Ipv4Addr, SocketAddr}, process::Command};
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    process::Command,
+};
 
 use slog;
-use tokio::{self, codec, net::{UdpFramed, UdpSocket}, prelude::*};
+use stream_cancel::{StreamExt, Tripwire};
+use tokio::{
+    self, codec,
+    net::{UdpFramed, UdpSocket},
+    prelude::*,
+};
 use tokio_process::CommandExt;
+use tokio_signal;
 
 use error::Error;
 use mac::MacAddress;
@@ -29,7 +38,7 @@ const WAKE_ON_LAN_PORTS: [u16; 3] = [0, 7, 9];
 /// See the [`magic_packet()`][::mac::magic_packet] parser for details about what
 /// constitutes a magic packet.
 pub fn run(
-    log: &slog::Logger,
+    log: slog::Logger,
     desired_mac_address: MacAddress,
     cmd: Vec<String>,
 ) -> Result<(), Error> {
@@ -48,13 +57,32 @@ pub fn run(
 
                     (log, stream)
                 })
-        })
-        .collect::<Result<Vec<_>, Error>>()?;
+        }).collect::<Result<Vec<_>, Error>>()?;
 
     info!(
         log,
         "Listening for wake-on-LAN packets on ports 0, 7, and 9"
     );
+
+    let mut runtime = tokio::runtime::Runtime::new().expect("Could not create tokio runtime");
+
+    let (sigint_handler, tripwire) = sigint_guard();
+    let sigint_handler = sigint_handler
+        .map_err({
+            let log = log.clone();
+            move |e| {
+                error!(log, "An error occurred while listening for SIGINT"; "error" => %e);
+                ()
+            }
+        }).map({
+            let log = log.clone();
+            move |()| {
+                info!(log, "Received Ctrl-C, shutting down server");
+                ()
+            }
+        });
+
+    runtime.spawn(sigint_handler);
 
     let servers = listeners.into_iter().map({
         move |(log, stream)| {
@@ -66,6 +94,7 @@ pub fn run(
                         ()
                     }
                 })
+                .take_until(tripwire.clone())
                 .for_each({
                     let cmd = cmd.clone();
                     move |(bytes, addr)| {
@@ -79,11 +108,11 @@ pub fn run(
 
                             Ok(mac_address) if mac_address != desired_mac_address => {
                                 info!(
-                                log,
-                                "Recieved wake-on-LAN packet for different mac address";
-                                "desired_mac_address" => %desired_mac_address,
-                                "received_mac_address" => %mac_address,
-                            );
+                                    log,
+                                    "Recieved wake-on-LAN packet for different mac address";
+                                    "desired_mac_address" => %desired_mac_address,
+                                    "received_mac_address" => %mac_address,
+                                );
                                 return future::Either::A(future::ok(()));
                             }
 
@@ -131,7 +160,11 @@ pub fn run(
 
     let server = future::join_all(servers).map(|_| ());
 
-    tokio::run(server);
+    runtime.spawn(server);
+    runtime
+        .shutdown_on_idle()
+        .wait()
+        .expect("Could not shut down tokio runtime");
 
     Ok(())
 }
@@ -144,4 +177,28 @@ fn utf8_or_raw(bytes: &[u8]) -> String {
     ::std::str::from_utf8(bytes)
         .map(Into::into)
         .unwrap_or_else(|_| format!("{:?}", bytes))
+}
+
+/// Generate a SIGINT trigger and tripwire.
+///
+/// The returned future (which must be spawned) listens for `SIGINT` (i.e.,
+/// Ctrl-C) and, upon receipt, drops the trigger for the returned tripwire.
+fn sigint_guard() -> (impl Future<Item = (), Error = Error>, Tripwire) {
+    let (trigger, tripwire) = Tripwire::new();
+
+    let mut trigger_guard = Some(trigger);
+
+    let sigint = tokio_signal::ctrl_c()
+        .flatten_stream()
+        .take(1)
+        .map_err(|e| Error::Io(e))
+        .for_each(move |()| {
+            if let Some(trigger) = trigger_guard.take() {
+                drop(trigger);
+            }
+
+            future::ok(())
+        });
+
+    (sigint, tripwire)
 }

@@ -23,4 +23,8 @@ pub enum Error {
     #[fail(display = "Could not bind to wake-on-LAN port {}", _0)]
     /// An error that occurs when wake-on-lan-hook cannot bind to a port.
     BindError(u16, #[cause] io::Error),
+
+    #[fail(display = "IO Error: {}", _0)]
+    /// A generic IO error.
+    Io(#[cause] io::Error),
 }
