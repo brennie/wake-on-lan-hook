@@ -56,9 +56,119 @@ jobs:
           name: cargo clippy
           command: cargo clippy
 
+  build-docs:
+    docker:
+      - image: liuchong/rustup:nightly
+
+    working_directory: ~/src/
+
+    steps:
+      - checkout
+
+      - run:
+          name: Software versions
+          command: |
+            rustup --version
+            cargo --version
+            rustc --version
+
+      - run:
+          name: Build documentation
+          command: cargo doc --document-private-items
+
+      - persist_to_workspace:
+          root: .
+          paths:
+            - target/doc/
+
+  deploy-docs:
+    docker:
+      - image: debian:jessie-slim
+
+    working_directory: ~/src/
+
+    steps:
+      - add_ssh_keys
+
+      - run:
+          name: Install dependencies
+          command: |
+            apt-get update
+            apt-get install -y ca-certificates git ssh
+
+      - checkout
+
+      - attach-workspace:
+          at: .
+
+      - run:
+          name: Generate documentation index
+          command: |
+            cat >target/doc/index.html <<EOF
+            <!doctype html>
+            <html>
+            <head>
+            <meta charset="utf-8">
+            <meta http-equiv="refresh" content="0; url=https://brennie.github.io/wake-on-lan-hook/wake_on_lan_hook/index.html">
+            </head>
+            </html>
+            EOF
+
+      - run:
+          name: Configure Git
+          command: |
+            git config --global user.name "Circle CI"
+            git config --global user.email deploy@brennie.ca
+
+      - run:
+          name: Deploy
+          command: |
+            # Copy over our CircleCI configuration so that we can control what
+            # CircleCI does in response to the pushed gh-pages branch.
+            mkdir -p target/doc/.circleci
+            cp .circleci/config.yml target/doc/.circleci/config.yml
+            # Commit everything as our deploy user.
+            git add -f target/doc
+            git commit -m "Build documentation for ${CIRCLE_SHA1}"
+            # Create a new branch named `gh-pages` rooted at `target/doc` and deploy.
+            git subtree split --prefix=target/doc -b gh-pages
+            git push -f origin gh-pages:gh-pages
+
 workflows:
   version: 2
-  build-lint:
+  build-lint-deploy:
     jobs:
-      - build
-      - lint
+      - build:
+          # Do not trigger builds on the gh-pages branch since it contains
+          # only documentation.
+          filters:
+            branches:
+              ignore:
+                - gh-pages
+
+      - lint:
+          # Likewise for the lint job.
+          filters:
+            branches:
+              ignore:
+                - gh-pages
+
+      - build-docs:
+          requires:
+
+          # Building docs is limited to master.
+          filters:
+            branches:
+              only:
+                - master
+
+      - deploy-docs:
+          requires:
+            - build
+            - build-docs
+
+          # Deploying docs is limited to master.
+          filters:
+            branches:
+              only:
+                - master
