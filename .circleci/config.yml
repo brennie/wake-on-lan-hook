@@ -1,0 +1,64 @@
+version: 2
+
+jobs:
+  build:
+    docker:
+      - image: liuchong/rustup
+
+    working_directory: ~/src/
+
+    steps:
+      - checkout
+
+      - run:
+          name: Compile
+          command: cargo build --verbose
+
+      - run:
+          name: List software verions
+          command: |
+            rustup --version
+            cargo --version
+            rustc --version
+
+      - run:
+          name: Test
+          command: cargo test --verbose
+
+  lint:
+    docker:
+      - image: liuchong/rustup
+
+    working_directory: ~/src/
+
+    steps:
+      - checkout
+
+      - run:
+          name: Install dependencies
+          command: rustup component add rustfmt-preview clippy-preview
+
+      - run:
+          name: List software versions
+          command: |
+            rustup --version
+            cargo --version
+            rustc --version
+            cargo fmt --version
+            cargo clippy --version
+
+      - run:
+          name: cargo fmt
+          command: cargo fmt -- --check
+
+      - run:
+          when: always
+          name: cargo clippy
+          command: cargo clippy
+
+workflows:
+  version: 2
+  build-lint:
+    jobs:
+      - build
+      - lint
