@@ -1,0 +1,12 @@
+[Unit]
+Description=Start a VM when a wake-on-LAN packet is received.
+Documentation=https://github.com/brennie/wake-on-lan-hook
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/opt/wake-on-lan-hook/bin/wake-on-lan-hook f0:0f:f0:0f:f0:0f -- systemctl start vm.service
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target
