@@ -1,0 +1,1 @@
+initSidebarItems({"constant":[["_DERIVE_failure_Fail_FOR_Error",""],["_DERIVE_failure_core_fmt_Display_FOR_Error",""]],"enum":[["Error","An error inside of `wake-on-lan-hook`."]]});

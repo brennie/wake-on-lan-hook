@@ -1,0 +1,1 @@
+initSidebarItems({"constant":[["WAKE_ON_LAN_PORTS","The ports to listen on."]],"existential":[["",""]],"fn":[["run","Run the wake-on-lan-hook server."],["signal_guard","Generate a signal handling future for SIGINT and SIGTERM and a tripwire that indictes when either of them is recieved."],["utf8_or_raw","Attempt to parse the bytes as UTF-8."]]});

@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["main","The `wake-on-lan-hook` entrypoint."]],"mod":[["error","The error types of `wake-on-lan-hook`."],["mac","Definitions and parsers for MAC addresses and wake-on-LAN magic packets."],["server","The wake-on-lan-hook server."]],"struct":[["Options","Listen for wake-on-LAN packets and execute commands."]]});
