@@ -12,7 +12,7 @@ use tokio::{
     prelude::*,
 };
 use tokio_process::CommandExt;
-use tokio_signal;
+use tokio_signal::unix::{Signal, SIGINT, SIGTERM};
 
 use error::Error;
 use mac::MacAddress;
@@ -66,23 +66,15 @@ pub fn run(
 
     let mut runtime = tokio::runtime::Runtime::new().expect("Could not create tokio runtime");
 
-    let (sigint_handler, tripwire) = sigint_guard();
-    let sigint_handler = sigint_handler
-        .map_err({
-            let log = log.clone();
-            move |e| {
-                error!(log, "An error occurred while listening for SIGINT"; "error" => %e);
-                ()
-            }
-        }).map({
-            let log = log.clone();
-            move |()| {
-                info!(log, "Received Ctrl-C, shutting down server");
-                ()
-            }
-        });
-
-    runtime.spawn(sigint_handler);
+    let (signal_handler, tripwire) = signal_guard(log.clone());
+    let signal_handler = signal_handler.map_err({
+        let log = log.clone();
+        move |e| {
+            error!(log, "An error occurred while listening for SIGINT and SIGTERM"; "error" => %e);
+            ()
+        }
+    });
+    runtime.spawn(signal_handler);
 
     let servers = listeners.into_iter().map({
         move |(log, stream)| {
@@ -179,19 +171,35 @@ fn utf8_or_raw(bytes: &[u8]) -> String {
         .unwrap_or_else(|_| format!("{:?}", bytes))
 }
 
-/// Generate a SIGINT trigger and tripwire.
+/// Generate a signal handling future for SIGINT and SIGTERM and a tripwire that
+/// indictes when either of them is recieved.
 ///
-/// The returned future (which must be spawned) listens for `SIGINT` (i.e.,
-/// Ctrl-C) and, upon receipt, drops the trigger for the returned tripwire.
-fn sigint_guard() -> (impl Future<Item = (), Error = Error>, Tripwire) {
+/// The returned future (which msut be spawned) listens for `SIGINT` (i.e.,
+/// Ctrl-C) or `SIGTERM` (i.e., a polite stop request) and, upon receipt, causes
+/// the [`Tripwire`] future to resolve.
+fn signal_guard(log: slog::Logger) -> (impl Future<Item = (), Error = Error>, Tripwire) {
     let (trigger, tripwire) = Tripwire::new();
-
     let mut trigger_guard = Some(trigger);
 
-    let sigint = tokio_signal::ctrl_c()
-        .flatten_stream()
+    let sigint = Signal::new(SIGINT).flatten_stream().map({
+        let log = log.clone();
+        move |_| {
+            info!(log, "Received Ctrl-C; shutting down");
+            ()
+        }
+    });
+    let sigterm = Signal::new(SIGTERM).flatten_stream().map({
+        let log = log.clone();
+        move |_| {
+            info!(log, "Received SIGTERM; shutting down");
+            ()
+        }
+    });
+
+    let signal_handler = sigint
+        .select(sigterm)
         .take(1)
-        .map_err(|e| Error::Io(e))
+        .map_err(Error::Io)
         .for_each(move |()| {
             if let Some(trigger) = trigger_guard.take() {
                 drop(trigger);
@@ -200,5 +208,5 @@ fn sigint_guard() -> (impl Future<Item = (), Error = Error>, Tripwire) {
             future::ok(())
         });
 
-    (sigint, tripwire)
+    (signal_handler, tripwire)
 }
